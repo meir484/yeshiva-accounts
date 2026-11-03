@@ -48,11 +48,14 @@ function sheet(wb,name){
 }
 function parse(buf,opt){
   var wb=XLSX.read(buf,{type:'array'});
-  var inc=ledgerRows(sheet(wb,'הכנסות'),INC,'תרומות ואחר','i');
-  var exp=ledgerRows(sheet(wb,'הוצאות'),EXP,'שונות','e');
-  var ei=exp.findIndex(function(r){return opt.expMarker&&r.desc.indexOf(opt.expMarker)>=0});
-  exp.forEach(function(r,k){r.year=ei>=0&&k>=ei?opt.year2:opt.year1});
-  inc.forEach(function(r,k){r.year=(k+1)>=opt.incStart?opt.year2:opt.year1});
+  var inc=[],exp=[],ei=-1;
+  if(!opt.only){
+    inc=ledgerRows(sheet(wb,'הכנסות'),INC,'תרומות ואחר','i');
+    exp=ledgerRows(sheet(wb,'הוצאות'),EXP,'שונות','e');
+    ei=exp.findIndex(function(r){return opt.expMarker&&r.desc.indexOf(opt.expMarker)>=0});
+    exp.forEach(function(r,k){r.year=ei>=0&&k>=ei?opt.year2:opt.year1});
+    inc.forEach(function(r,k){r.year=(k+1)>=opt.incStart?opt.year2:opt.year1});
+  }
   var cat_={invoices:[],payments:[]};
   sheet(wb,'קייטרינג').slice(2).forEach(function(r){
     if(typeof r[0]==='number'&&typeof r[1]==='number')cat_.invoices.push({id:'c'+(cat_.invoices.length+1),month:ymd(r[0]),amount:r[1]});

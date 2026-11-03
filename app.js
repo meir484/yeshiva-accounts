@@ -2,9 +2,10 @@
 "use strict";
 var DEF_EXP=['מזון ומכולת','משכורות ועובדים','תחזוקה ותיקונים','שיפוץ, ריהוט וציוד','אירועים, דרשנים וסעודות','ספקי מזון וקייטרינג','משרד, דפוס וספרים','טיולים ופעילות','הובלות ומוניות','שונות'];
 var DEF_INC=['שמעון טויסיג','שכר לימוד','תשלומי בחורים','החזרי משכורת','תרומות ואחר'];
+var METHODS=['צ׳ק','מזומן'];
 var TABS=[['overview','סקירה'],['tx','תנועות'],['catering','קייטרינג'],['edu','חינוך'],['notes','הערות']];
 var S={inc:null,exp:null,cat:null,edu:null,notes:null,canEdit:false,uid:null,names:{},
-  tab:'overview',month:'all',txType:'all',txCat:'all',txQ:'',txNoDate:false,txLimit:80,
+  tab:'overview',month:'all',txType:'all',txCat:'all',txMethod:'all',txQ:'',txNoDate:false,txLimit:80,
   year:'all',dialog:null,confirm:null,editS:null,loadFailed:false};
 var saveChain={},pending={},stamp={},pollId=null;
 
@@ -81,12 +82,21 @@ function vOverview(){
   var h='<div class="row-tools"><div class="field" style="width:200px"><label for="monthSel">תקופה</label><select id="monthSel">'+opts+'</select></div>';
   if(S.month!=='all')h+='<div class="status">מוצגות רק תנועות עם תאריך בחודש זה. '+shekel(sum(inc))+' הכנסות · '+shekel(sum(exp))+' הוצאות</div>';
   h+='<div class="grow"></div>'+(S.canEdit?'<button class="btn" data-act="import">ייבוא מאקסל</button>':'')+'<button class="btn" data-act="csv">הורדה לאקסל (CSV)</button></div>';
+  if(!S.inc.length&&!S.exp.length)h+='<div class="panel empty">עדיין אין הכנסות והוצאות. כדי להתחיל: לשונית תנועות ← תנועה חדשה.</div>';
   h+='<div class="grid2"><section class="panel"><h2>הוצאות לפי קטגוריה</h2>'+bars(group(exp),sum(exp),'exp-fill')+'</section>'+
      '<section class="panel"><h2>הכנסות לפי מקור</h2>'+bars(group(inc),sum(inc),'inc-fill')+'</section></div>';
-  h+=yearTable();
+  h+=yearTable()+methodTable(inc,exp);
   h+='<section class="panel"><h2>הכנסות והוצאות לפי חודש</h2>'+monthChart(ms)+
-     (undated?'<div class="note-box">'+undated+' תנועות מהטבלה המקורית נרשמו בלי תאריך, ולכן אינן מופיעות בגרף החודשי (הן כלולות בכל הסכומים). אפשר להשלים תאריכים בלשונית "תנועות".</div>':'')+'</section>';
+     (undated?'<div class="note-box">'+undated+' תנועות נרשמו בלי תאריך, ולכן אינן מופיעות בגרף החודשי (הן כלולות בכל הסכומים). אפשר להשלים תאריכים בלשונית "תנועות".</div>':'')+'</section>';
   return h;
+}
+function methodTable(inc,exp){
+  if(!inc.length&&!exp.length)return '';
+  var rows=METHODS.concat(['']).map(function(m){
+    var i=sum(inc.filter(function(r){return (r.method||'')===m})),e=sum(exp.filter(function(r){return (r.method||'')===m}));
+    if(!i&&!e)return '';
+    return '<tr><td><b>'+(m||'לא צוין')+'</b></td><td class="amount inc">'+shekel(i)+'</td><td class="amount exp">'+shekel(e)+'</td></tr>'}).join('');
+  return '<section class="panel tablewrap" style="margin-bottom:14px"><h2>לפי אופן תשלום</h2><table style="min-width:360px"><thead><tr><th>אופן תשלום</th><th>הכנסות</th><th>הוצאות</th></tr></thead><tbody>'+rows+'</tbody></table></section>';
 }
 function yearTable(){
   var ys=years();if(ys.length<2)return '';
@@ -122,6 +132,7 @@ function txList(){
   rows=rows.filter(function(x){
     if(!inYear(x.r))return false;
     if(S.txCat!=='all'&&x.r.cat!==S.txCat)return false;
+    if(S.txMethod!=='all'&&(x.r.method||'')!==(S.txMethod==='none'?'':S.txMethod))return false;
     if(S.txNoDate&&x.r.date)return false;
     if(q&&(x.r.desc+' '+(x.r.note||'')+' '+x.r.cat).indexOf(q)<0)return false;
     return true});
@@ -133,16 +144,17 @@ function vTx(){
   var rows=txList(),shown=rows.slice(0,S.txLimit);
   var h='<div class="row-tools"><div class="seg" role="group" aria-label="סוג">'+[['all','הכל'],['exp','הוצאות'],['inc','הכנסות']].map(function(t){return '<button data-type="'+t[0]+'" aria-pressed="'+(S.txType===t[0])+'">'+t[1]+'</button>'}).join('')+'</div>'+
   '<select id="txCat" aria-label="קטגוריה" style="width:auto"><option value="all">כל הקטגוריות</option>'+all.map(function(c){return '<option'+(S.txCat===c?' selected':'')+'>'+esc(c)+'</option>'}).join('')+'</select>'+
+  '<select id="txMethod" aria-label="אופן תשלום" style="width:auto"><option value="all">כל אופני התשלום</option>'+METHODS.concat(['none']).map(function(m){return '<option value="'+m+'"'+(S.txMethod===m?' selected':'')+'>'+(m==='none'?'לא צוין':m)+'</option>'}).join('')+'</select>'+
   '<input type="search" id="txQ" placeholder="חיפוש בפירוט או בהערה" value="'+esc(S.txQ)+'" style="flex:1;min-width:150px;width:auto">'+
   '<label style="font-size:13px;color:var(--muted);white-space:nowrap"><input type="checkbox" id="txND"'+(S.txNoDate?' checked':'')+'> ללא תאריך</label>'+
   (S.canEdit?'<button class="btn primary" data-act="add">+ תנועה חדשה</button>':'')+'</div>';
   var ti=0,te=0;rows.forEach(function(x){if(x.t==='inc')ti+=+x.r.amount;else te+=+x.r.amount});
   h+='<div class="status">'+rows.length+' תנועות · הכנסות '+shekel(ti)+' · הוצאות '+shekel(te)+'</div>';
   if(!rows.length)return h+'<div class="panel empty">לא נמצאו תנועות</div>';
-  h+='<div class="panel tablewrap" style="padding:6px 10px"><table><thead><tr><th>תאריך</th><th>פירוט</th><th>קטגוריה</th><th>סכום</th>'+(S.canEdit?'<th></th>':'')+'</tr></thead><tbody>';
+  h+='<div class="panel tablewrap" style="padding:6px 10px"><table><thead><tr><th>תאריך</th><th>פירוט</th><th>קטגוריה</th><th>תשלום</th><th>סכום</th>'+(S.canEdit?'<th></th>':'')+'</tr></thead><tbody>';
   shown.forEach(function(x){var r=x.r;
     h+='<tr><td class="date">'+fmtDate(r)+(S.year==='all'&&r.year?'<div class="rownote" style="margin:0;font-size:12px">'+esc(r.year)+'</div>':'')+'</td><td>'+esc(r.desc||'(ללא פירוט)')+(r.note?'<div class="rownote">'+esc(r.note)+'</div>':'')+'</td>'+
-    '<td><span class="pill '+x.t+'">'+esc(r.cat||'ללא קטגוריה')+'</span></td><td class="amount '+x.t+'">'+shekel(r.amount)+'</td>'+
+    '<td><span class="pill '+x.t+'">'+esc(r.cat||'ללא קטגוריה')+'</span></td><td class="date">'+esc(r.method||'—')+'</td><td class="amount '+x.t+'">'+shekel(r.amount)+'</td>'+
     (S.canEdit?'<td class="act"><button class="btn small" data-edit="'+x.t+':'+r.id+'">עריכה</button></td>':'')+'</tr>'});
   h+='</tbody></table></div>';
   if(rows.length>shown.length)h+='<div style="text-align:center;margin-top:12px"><button class="btn" data-act="more">הצג עוד ('+(rows.length-shown.length)+')</button></div>';
@@ -160,7 +172,8 @@ function renderDialog(){
    '<div class="field"><label for="fAmt">סכום (₪)</label><input type="number" id="fAmt" step="0.01" min="0" required value="'+esc(r.amount==null?'':r.amount)+'"></div>'+
    '<div class="field full"><label for="fDesc">פירוט</label><input type="text" id="fDesc" required value="'+esc(r.desc||'')+'"></div>'+
    '<div class="field full"><label for="fCat">קטגוריה</label><input type="text" id="fCat" list="catList" required value="'+esc(r.cat||'')+'" placeholder="בחרו או הקלידו קטגוריה חדשה"><datalist id="catList">'+list.map(function(c){return '<option value="'+esc(c)+'">'}).join('')+'</datalist></div>'+
-   '<div class="field"><label for="fYear">שנה</label><input type="text" id="fYear" list="yearList" value="'+esc(r.year||'')+'" placeholder="למשל '+esc(curYear()||'תשפ״ז')+'"><datalist id="yearList">'+years().map(function(y){return '<option value="'+esc(y)+'">'}).join('')+'</datalist></div><div></div>'+
+   '<div class="field"><label for="fMethod">אופן תשלום</label><select id="fMethod"><option value="">לא צוין</option>'+METHODS.map(function(m){return '<option'+(r.method===m?' selected':'')+'>'+m+'</option>'}).join('')+'</select></div>'+
+   '<div class="field"><label for="fYear">שנה</label><input type="text" id="fYear" list="yearList" value="'+esc(r.year||'')+'" placeholder="למשל '+esc(curYear()||'תשפ״ז')+'"><datalist id="yearList">'+years().map(function(y){return '<option value="'+esc(y)+'">'}).join('')+'</datalist></div>'+
    '<div class="field full"><label for="fNote">הערה</label><textarea id="fNote">'+esc(r.note||'')+'</textarea></div></div>'+
    '<div class="form-actions"><div style="display:flex;gap:8px"><button class="btn primary" type="submit">שמירה</button><button class="btn" type="button" data-act="close">ביטול</button></div>'+
    (isNew?'':(S.confirm==='del-tx'?'<button class="btn danger" type="button" data-act="delTx">בטוח? מחיקה סופית</button>':'<button class="btn danger" type="button" data-act="askDel">מחיקה</button>'))+'</div></form></div>';
@@ -169,7 +182,7 @@ function renderDialog(){
 function submitTx(e){
   e.preventDefault();var d=S.dialog,r=Object.assign({},d.row);
   r.date=$('fDate').value||null;if(r.date)delete r.dateText;delete r.dateFixed;
-  r.amount=Math.round(parseFloat($('fAmt').value)*100)/100;r.desc=$('fDesc').value.trim();r.cat=$('fCat').value.trim();r.note=$('fNote').value.trim();r.year=$('fYear').value.trim();if(!r.year)delete r.year;
+  r.amount=Math.round(parseFloat($('fAmt').value)*100)/100;r.desc=$('fDesc').value.trim();r.cat=$('fCat').value.trim();r.note=$('fNote').value.trim();r.year=$('fYear').value.trim();if(!r.year)delete r.year;r.method=$('fMethod').value;if(!r.method)delete r.method;
   if(!(r.amount>=0)||!r.desc||!r.cat){toast('יש למלא סכום, פירוט וקטגוריה');return}
   var from=d.orig,to=d.type;
   var inc=S.inc.slice(),exp=S.exp.slice();
@@ -241,9 +254,9 @@ function vNotes(){
 /* ---------- csv ---------- */
 function csv(){
   var q=function(v){v=String(v==null?'':v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
-  var lines=[['סוג','שנה','תאריך','סכום','פירוט','קטגוריה','הערה'].join(',')];
-  S.exp.forEach(function(r){lines.push(['הוצאה',r.year,r.date||r.dateText||'',r.amount,r.desc,r.cat,r.note].map(q).join(','))});
-  S.inc.forEach(function(r){lines.push(['הכנסה',r.year,r.date||r.dateText||'',r.amount,r.desc,r.cat,r.note].map(q).join(','))});
+  var lines=[['סוג','שנה','תאריך','סכום','פירוט','קטגוריה','אופן תשלום','הערה'].join(',')];
+  S.exp.forEach(function(r){lines.push(['הוצאה',r.year,r.date||r.dateText||'',r.amount,r.desc,r.cat,r.method,r.note].map(q).join(','))});
+  S.inc.forEach(function(r){lines.push(['הכנסה',r.year,r.date||r.dateText||'',r.amount,r.desc,r.cat,r.method,r.note].map(q).join(','))});
   var data='﻿'+lines.join('\r\n');
   try{var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:'text/csv;charset=utf-8'}));a.download='הוצאות-והכנסות.csv';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500)}catch(e){toast('ההורדה נכשלה')}
 }
@@ -260,7 +273,7 @@ document.addEventListener('click',function(e){
   if(t.dataset.askdel){S.confirm=t.dataset.askdel;render();return}
   if(t.dataset.del){delSimple(t.dataset.del);return}
   var a=t.dataset.act;
-  if(a==='add'){S.confirm=null;S.dialog={type:'exp',orig:null,row:{date:new Date().toISOString().slice(0,10),year:S.year!=='all'?S.year:curYear()}};renderDialog();return}
+  if(a==='add'){S.confirm=null;S.dialog={type:'exp',orig:null,row:{date:new Date().toISOString().slice(0,10),year:S.year!=='all'?S.year:(curYear()||'תשפ״ז')}};renderDialog();return}
   if(a==='close'||(a==='closeBg'&&e.target===t)){S.dialog=null;S.confirm=null;renderDialog();return}
   if(a==='cancelEdit'){S.editS=null;render();return}
   if(a==='more'){S.txLimit+=120;render();return}
@@ -270,10 +283,11 @@ document.addEventListener('click',function(e){
   if(a==='delTx'){delTx();return}
 });
 function captureForm(){var d=S.dialog;if(!d||!$('fAmt'))return;var r=d.row;
-  r.date=$('fDate').value||null;r.amount=$('fAmt').value===''?null:parseFloat($('fAmt').value);r.desc=$('fDesc').value;r.cat=$('fCat').value;r.note=$('fNote').value;r.year=$('fYear').value}
+  r.date=$('fDate').value||null;r.amount=$('fAmt').value===''?null:parseFloat($('fAmt').value);r.desc=$('fDesc').value;r.cat=$('fCat').value;r.note=$('fNote').value;r.year=$('fYear').value;r.method=$('fMethod').value}
 document.addEventListener('change',function(e){
   var id=e.target.id;
   if(id==='monthSel'){S.month=e.target.value;render()}
+  else if(id==='txMethod'){S.txMethod=e.target.value;S.txLimit=80;render()}
   else if(id==='txCat'){S.txCat=e.target.value;S.txLimit=80;render()}
   else if(id==='txND'){S.txNoDate=e.target.checked;render()}
 });
@@ -312,33 +326,34 @@ function loadXLSX(){
 function closeImport(){window.__importOpen=false;$('overlay2').innerHTML=''}
 function openImport(){
   window.__importOpen=true;
-  $('overlay2').innerHTML='<div class="overlay"><form class="dialog" id="impForm"><h2>ייבוא מקובץ אקסל</h2>'+
-   '<div class="note-box" style="margin:0 0 12px">הייבוא מחליף את כל הנתונים הקיימים: הכנסות, הוצאות, קייטרינג וחינוך. הקובץ נקרא בדפדפן בלבד ואינו נשמר באתר.</div>'+
-   '<div class="form"><div class="field full"><label for="impFile">קובץ האקסל (xlsx)</label><input type="file" id="impFile" accept=".xlsx,.xlsm" required></div>'+
-   '<div class="field"><label for="impY1">שם השנה הראשונה</label><input type="text" id="impY1" value="תשפ״ו"></div>'+
-   '<div class="field"><label for="impY2">שם השנה השנייה</label><input type="text" id="impY2" value="תשפ״ז"></div>'+
-   '<div class="field full"><label for="impMk">בהוצאות, השנה השנייה מתחילה בשורה שמופיע בה</label><input type="text" id="impMk" value="מקדמה ריהוט"></div>'+
-   '<div class="field full"><label for="impInc">בהכנסות, השנה השנייה מתחילה משורה מספר (לא כולל כותרת)</label><input type="number" id="impInc" min="1" value="38"></div></div>'+
+  $('overlay2').innerHTML='<div class="overlay"><form class="dialog" id="impForm"><h2>ייבוא קייטרינג וחינוך מאקסל</h2>'+
+   '<div class="note-box" style="margin:0 0 12px">מיובאים רק הגיליונות קייטרינג וחינוך, והם מחליפים את הנתונים הקיימים בשני הדפים האלה. ההכנסות וההוצאות לא נוגעות. הקובץ נקרא בדפדפן בלבד ואינו נשמר באתר.</div>'+
+   '<div class="form"><div class="field full"><label for="impFile">קובץ האקסל (xlsx)</label><input type="file" id="impFile" accept=".xlsx,.xlsm" required></div></div>'+
    '<div id="impPrev" class="status" style="margin-top:12px"></div>'+
-   '<div class="form-actions"><div style="display:flex;gap:8px"><button class="btn primary" type="submit" id="impGo">קריאה ובדיקה</button><button class="btn" type="button" id="impCancel">ביטול</button></div></div></form></div>';
-  var parsed=null;
+   '<div class="form-actions"><div style="display:flex;gap:8px"><button class="btn primary" type="submit" id="impGo">קריאה ובדיקה</button><button class="btn" type="button" id="impCancel">ביטול</button></div></div>'+
+   '<hr style="border:0;border-top:1px solid var(--line);margin:18px 0 12px"><div class="status">התחלה מחדש בהכנסות ובהוצאות:</div><button class="btn danger small" type="button" id="impClear">מחיקת כל ההכנסות וההוצאות</button></form></div>';
+  var parsed=null,armed=false;
   $('impCancel').onclick=closeImport;
+  $('impClear').onclick=function(){
+    var b=$('impClear'),n=S.inc.length+S.exp.length;
+    if(!armed){armed=true;b.textContent='בטוח? מחיקה סופית של '+n+' תנועות (לחיצה נוספת)';return}
+    b.disabled=true;var now=Date.now();
+    Promise.all([['income','inc'],['expense','exp']].map(function(p){var d={rows:[],updated:now};return API.setDoc('ledger/'+p[0],d).then(function(ts){stamp[p[0]]=ts;applyDoc(p[0],d)})})).then(function(){closeImport();render();toast('ההכנסות וההוצאות נמחקו')},function(err){b.disabled=false;$('impPrev').textContent='המחיקה נכשלה: '+err.message});
+  };
   $('impForm').addEventListener('input',function(){parsed=null;$('impGo').textContent='קריאה ובדיקה';$('impPrev').innerHTML=''});
   $('impForm').addEventListener('submit',function(e){
     e.preventDefault();var prev=$('impPrev'),go=$('impGo');
     if(parsed){
       go.disabled=true;prev.textContent='שומר…';
-      var names=['income','expense','catering','edu'];
-      Promise.all(names.map(function(n){return API.setDoc('ledger/'+n,parsed[n]).then(function(ts){stamp[n]=ts;applyDoc(n,parsed[n])})})).then(function(){
-        closeImport();render();toast('הנתונים יובאו')},function(err){go.disabled=false;prev.textContent='השמירה נכשלה: '+err.message});
+      Promise.all(['catering','edu'].map(function(n){return API.setDoc('ledger/'+n,parsed[n]).then(function(ts){stamp[n]=ts;applyDoc(n,parsed[n])})})).then(function(){
+        closeImport();render();toast('הקייטרינג והחינוך יובאו')},function(err){go.disabled=false;prev.textContent='השמירה נכשלה: '+err.message});
       return;
     }
     var f=$('impFile').files[0];if(!f)return;go.disabled=true;prev.textContent='קורא…';
     loadXLSX().then(function(){return f.arrayBuffer()}).then(function(buf){
-      parsed=LedgerImport.parse(buf,{year1:$('impY1').value.trim(),year2:$('impY2').value.trim(),incStart:+$('impInc').value||1,expMarker:$('impMk').value.trim()});
-      var i=parsed.income.rows,x=parsed.expense.rows;
-      prev.innerHTML='נמצאו '+i.length+' הכנסות ('+shekel(sum(i))+'), '+x.length+' הוצאות ('+shekel(sum(x))+'), '+parsed.catering.invoices.length+' חיובי קייטרינג ו-'+parsed.edu.rows.length+' חודשי חינוך.'+
-        (parsed.markerFound?'':'<div class="note-box">לא נמצאה שורה עם הטקסט שהוזן בהוצאות, ולכן כל ההוצאות נרשמו בשנה הראשונה.</div>');
+      parsed=LedgerImport.parse(buf,{only:'catering-edu'});
+      var c=parsed.catering;
+      prev.innerHTML='נמצאו '+c.invoices.length+' חיובי קייטרינג ('+shekel(sum(c.invoices))+'), '+c.payments.length+' תשלומים לקייטרינג ('+shekel(sum(c.payments))+') ו-'+parsed.edu.rows.length+' חודשי חינוך ('+shekel(sum(parsed.edu.rows))+').';
       go.textContent='החלפת הנתונים באלה';go.disabled=false;
     }).catch(function(err){parsed=null;go.disabled=false;prev.textContent='שגיאה: '+err.message});
   });
