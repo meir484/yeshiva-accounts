@@ -400,7 +400,7 @@ function loginUI(){
   showOnly('login');
   $('loginForm').addEventListener('submit',function(e){
     e.preventDefault();var b=$('loginBtn'),m=$('loginMsg');m.textContent='';b.disabled=true;
-    API.login($('lEmail').value,$('lPass').value).then(function(){$('lPass').value='';start()},function(err){m.textContent=err.message}).then(function(){b.disabled=false});
+    API.login($('lEmail').value,$('lPass').value,$('lRemember').checked).then(function(){$('lPass').value='';start()},function(err){m.textContent=err.message}).then(function(){b.disabled=false});
   });
   $('forgot').addEventListener('click',function(){
     var m=$('loginMsg'),em=$('lEmail').value.trim();if(!em){m.textContent='הקלידו קודם את כתובת האימייל';return}

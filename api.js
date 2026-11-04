@@ -2,12 +2,24 @@
 (function(){
 "use strict";
 var C=window.APP_CONFIG||{};
-var SESSION_KEY='yeshiva-accounts:session';
+var SESSION_KEY='yeshiva-accounts:session',REMEMBER_KEY='yeshiva-accounts:remember';
+var remember=false;
 var sess=null; // {email, refreshToken, idToken, exp}
 
 function configured(){return !!(C.apiKey&&C.projectId&&(C.ownerHash||C.ownerEmail))}
-function load(){try{return JSON.parse(localStorage.getItem(SESSION_KEY)||'null')}catch(e){return null}}
-function store(s){try{if(s)localStorage.setItem(SESSION_KEY,JSON.stringify({email:s.email,refreshToken:s.refreshToken}));else localStorage.removeItem(SESSION_KEY)}catch(e){}}
+function load(){
+  try{localStorage.removeItem(SESSION_KEY)}catch(e){} // legacy: sessions that were kept forever without asking
+  var s=null;
+  try{s=JSON.parse(sessionStorage.getItem(SESSION_KEY)||'null');if(s){remember=false;return s}}catch(e){}
+  try{s=JSON.parse(localStorage.getItem(REMEMBER_KEY)||'null');if(s){remember=true;return s}}catch(e){}
+  return null;
+}
+function store(s){
+  try{sessionStorage.removeItem(SESSION_KEY);localStorage.removeItem(REMEMBER_KEY)}catch(e){}
+  if(!s)return;
+  var d=JSON.stringify({email:s.email,refreshToken:s.refreshToken});
+  try{if(remember)localStorage.setItem(REMEMBER_KEY,d);else sessionStorage.setItem(SESSION_KEY,d)}catch(e){}
+}
 
 function http(url,opt,ms){
   var ctl=new AbortController(),t=setTimeout(function(){ctl.abort()},ms||12000);
@@ -22,10 +34,10 @@ function authErr(code){
 function setTokens(email,idToken,refreshToken,expiresIn){
   sess={email:String(email||'').toLowerCase(),idToken:idToken,refreshToken:refreshToken,exp:Date.now()+(+expiresIn-60)*1000};store(sess);
 }
-function login(email,password){
+function login(email,password,rem){
   return http('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+C.apiKey,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({email:email.trim(),password:password,returnSecureToken:true})}).then(function(r){return r.json()}).then(function(j){
-    if(j.error)throw authErr(j.error.message);setTokens(j.email,j.idToken,j.refreshToken,j.expiresIn);return sess.email});
+    if(j.error)throw authErr(j.error.message);remember=!!rem;setTokens(j.email,j.idToken,j.refreshToken,j.expiresIn);return sess.email});
 }
 function refresh(){
   var s=sess||load();if(!s||!s.refreshToken)return Promise.reject(new Error('נדרשת התחברות'));
