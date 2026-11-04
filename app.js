@@ -6,7 +6,7 @@ var METHODS=['צ׳ק','מזומן'];
 var TABS=[['overview','סקירה'],['tx','תנועות'],['catering','קייטרינג'],['edu','חינוך'],['notes','הערות']];
 var S={inc:null,exp:null,cat:null,edu:null,notes:null,canEdit:false,uid:null,names:{},
   tab:'overview',month:'all',txType:'all',txCat:'all',txMethod:'all',txQ:'',txNoDate:false,txLimit:80,
-  year:'all',dialog:null,confirm:null,editS:null,loadFailed:false};
+  year:'all',rcpt:{},dialog:null,confirm:null,editS:null,loadFailed:false};
 var saveChain={},pending={},stamp={},pollId=null;
 
 var $=function(id){return document.getElementById(id)};
@@ -153,7 +153,7 @@ function vTx(){
   if(!rows.length)return h+'<div class="panel empty">לא נמצאו תנועות</div>';
   h+='<div class="panel tablewrap" style="padding:6px 10px"><table><thead><tr><th>תאריך</th><th>פירוט</th><th>קטגוריה</th><th>תשלום</th><th>סכום</th>'+(S.canEdit?'<th></th>':'')+'</tr></thead><tbody>';
   shown.forEach(function(x){var r=x.r;
-    h+='<tr><td class="date">'+fmtDate(r)+(S.year==='all'&&r.year?'<div class="rownote" style="margin:0;font-size:12px">'+esc(r.year)+'</div>':'')+'</td><td>'+esc(r.desc||'(ללא פירוט)')+(r.note?'<div class="rownote">'+esc(r.note)+'</div>':'')+'</td>'+
+    h+='<tr><td class="date">'+fmtDate(r)+(S.year==='all'&&r.year?'<div class="rownote" style="margin:0;font-size:12px">'+esc(r.year)+'</div>':'')+'</td><td>'+esc(r.desc||'(ללא פירוט)')+(r.note?'<div class="rownote">'+esc(r.note)+'</div>':'')+(r.receipts&&r.receipts.length?'<div><button class="link" data-rview="'+x.t+':'+r.id+'">קבלה ('+r.receipts.length+')</button></div>':'')+'</td>'+
     '<td><span class="pill '+x.t+'">'+esc(r.cat||'ללא קטגוריה')+'</span></td><td class="date">'+esc(r.method||'—')+'</td><td class="amount '+x.t+'">'+shekel(r.amount)+'</td>'+
     (S.canEdit?'<td class="act"><button class="btn small" data-edit="'+x.t+':'+r.id+'">עריכה</button></td>':'')+'</tr>'});
   h+='</tbody></table></div>';
@@ -161,6 +161,58 @@ function vTx(){
   return h;
 }
 /* ---------- dialog ---------- */
+/* ---------- receipts (compressed photos stored as Firestore docs) ---------- */
+var MAX_RCPT=5;
+function loadReceipt(id){
+  if(S.rcpt[id])return Promise.resolve(S.rcpt[id]);
+  return API.getDoc('receipts/'+id).then(function(r){var u=r&&r.data&&r.data.img;if(u)S.rcpt[id]=u;return u||null});
+}
+function thumbsHtml(ids){
+  return ids.map(function(id){
+    return '<span class="thumb" data-rid="'+esc(id)+'"><img alt="קבלה" '+(S.rcpt[id]?'src="'+S.rcpt[id]+'"':'')+'><button type="button" aria-label="הסרת הקבלה" data-rdel="'+esc(id)+'">×</button></span>'}).join('');
+}
+function fillThumbs(ids){
+  ids.forEach(function(id){if(S.rcpt[id])return;loadReceipt(id).then(function(u){var im=document.querySelector('.thumb[data-rid="'+id+'"] img');if(u&&im)im.src=u},function(){})});
+}
+function encode(img,sc){
+  var c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.width*sc));c.height=Math.max(1,Math.round(img.height*sc));
+  var g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(img,0,0,c.width,c.height);
+  var q=.82,d=c.toDataURL('image/jpeg',q);while(d.length>700000&&q>.35){q-=.1;d=c.toDataURL('image/jpeg',q)}return d;
+}
+function compress(file){
+  return new Promise(function(res,rej){
+    if(!/^image\//.test(file.type))return rej(new Error('ניתן לצרף תמונה בלבד (JPG או PNG). אפשר לצלם את המסמך במצלמה.'));
+    var url=URL.createObjectURL(file),img=new Image();
+    img.onload=function(){URL.revokeObjectURL(url);
+      var sc=Math.min(1,1700/Math.max(img.width,img.height)),d=encode(img,sc);
+      if(d.length>900000)d=encode(img,sc*.6);
+      if(d.length>900000)return rej(new Error('התמונה גדולה מדי'));
+      res(d)};
+    img.onerror=function(){URL.revokeObjectURL(url);rej(new Error('לא ניתן לקרוא את התמונה'))};img.src=url;
+  });
+}
+function addReceipts(files){
+  var d=S.dialog;if(!d)return;var msg=$('rcptMsg');d.row.receipts=d.row.receipts||[];d.added=d.added||[];
+  var list=Array.prototype.slice.call(files).slice(0,Math.max(0,MAX_RCPT-d.row.receipts.length));
+  if(!list.length){msg.textContent='אפשר לצרף עד '+MAX_RCPT+' תמונות לתנועה';return}
+  msg.textContent='מעלה…';
+  list.reduce(function(p,f){return p.then(function(){
+    return compress(f).then(function(img){
+      var id='r'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+      return API.setDoc('receipts/'+id,{img:img,name:f.name||'',ts:Date.now()}).then(function(){S.rcpt[id]=img;d.row.receipts.push(id);d.added.push(id)});
+    })})},Promise.resolve()).then(function(){captureForm();renderDialog();toast('הקבלה נשמרה')},function(err){
+      var txt=err.code==='permission-denied'?'אין הרשאה לשמור קבלות. צריך להוסיף את הכלל של receipts בכללי Firebase.':err.message;
+      captureForm();renderDialog();var m=$('rcptMsg');if(m)m.textContent=txt});
+}
+function discardDialog(){var d=S.dialog;if(d&&d.added)d.added.forEach(function(id){API.delDoc('receipts/'+id).catch(function(){})});S.dialog=null;S.confirm=null;renderDialog()}
+function openViewer(ids){
+  var o=$('overlay3');
+  o.innerHTML='<div class="overlay" data-act="vClose"><div class="dialog" style="max-width:820px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h2 style="margin:0">קבלות</h2><button class="btn small" data-act="vClose" type="button">סגירה</button></div><div id="vBody" class="status">טוען…</div></div></div>';
+  Promise.all(ids.map(function(id){return loadReceipt(id).catch(function(){return null})})).then(function(us){
+    var b=$('vBody');if(!b)return;b.className='';
+    b.innerHTML=us.map(function(u){return u?'<img class="rview" alt="קבלה" src="'+u+'">':'<div class="note-box">לא ניתן לטעון קבלה</div>'}).join('');
+  });
+}
 function renderDialog(){
   var d=S.dialog,o=$('overlay');
   if(!d){o.innerHTML='';return}
@@ -174,15 +226,17 @@ function renderDialog(){
    '<div class="field full"><label for="fCat">קטגוריה</label><input type="text" id="fCat" list="catList" required value="'+esc(r.cat||'')+'" placeholder="בחרו או הקלידו קטגוריה חדשה"><datalist id="catList">'+list.map(function(c){return '<option value="'+esc(c)+'">'}).join('')+'</datalist></div>'+
    '<div class="field"><label for="fMethod">אופן תשלום</label><select id="fMethod"><option value="">לא צוין</option>'+METHODS.map(function(m){return '<option'+(r.method===m?' selected':'')+'>'+m+'</option>'}).join('')+'</select></div>'+
    '<div class="field"><label for="fYear">שנה</label><input type="text" id="fYear" list="yearList" value="'+esc(r.year||'')+'" placeholder="למשל '+esc(curYear()||'תשפ״ז')+'"><datalist id="yearList">'+years().map(function(y){return '<option value="'+esc(y)+'">'}).join('')+'</datalist></div>'+
+   '<div class="field full"><label>קבלה או חשבונית</label><div class="thumbs" id="rcptBox">'+thumbsHtml(r.receipts||[])+'</div><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label class="btn small" style="cursor:pointer">צילום או בחירת תמונה<input type="file" id="fRcpt" accept="image/*" multiple hidden></label><span class="status" id="rcptMsg" style="padding:0"></span></div></div>'+
    '<div class="field full"><label for="fNote">הערה</label><textarea id="fNote">'+esc(r.note||'')+'</textarea></div></div>'+
    '<div class="form-actions"><div style="display:flex;gap:8px"><button class="btn primary" type="submit">שמירה</button><button class="btn" type="button" data-act="close">ביטול</button></div>'+
    (isNew?'':(S.confirm==='del-tx'?'<button class="btn danger" type="button" data-act="delTx">בטוח? מחיקה סופית</button>':'<button class="btn danger" type="button" data-act="askDel">מחיקה</button>'))+'</div></form></div>';
   var f=$('fDate');if(isNew&&!d.focused){d.focused=1;$('fAmt').focus()}
+  fillThumbs(r.receipts||[]);
 }
 function submitTx(e){
   e.preventDefault();var d=S.dialog,r=Object.assign({},d.row);
   r.date=$('fDate').value||null;if(r.date)delete r.dateText;delete r.dateFixed;
-  r.amount=Math.round(parseFloat($('fAmt').value)*100)/100;r.desc=$('fDesc').value.trim();r.cat=$('fCat').value.trim();r.note=$('fNote').value.trim();r.year=$('fYear').value.trim();if(!r.year)delete r.year;r.method=$('fMethod').value;if(!r.method)delete r.method;
+  r.amount=Math.round(parseFloat($('fAmt').value)*100)/100;r.desc=$('fDesc').value.trim();r.cat=$('fCat').value.trim();r.note=$('fNote').value.trim();r.year=$('fYear').value.trim();if(!r.year)delete r.year;r.method=$('fMethod').value;if(!r.method)delete r.method;if(!(r.receipts&&r.receipts.length))delete r.receipts;
   if(!(r.amount>=0)||!r.desc||!r.cat){toast('יש למלא סכום, פירוט וקטגוריה');return}
   var from=d.orig,to=d.type;
   var inc=S.inc.slice(),exp=S.exp.slice();
@@ -194,12 +248,13 @@ function submitTx(e){
   }
   var p=[];
   var chInc=to==='inc'||from==='inc',chExp=to==='exp'||from==='exp';
+  (d.removed||[]).forEach(function(id){API.delDoc('receipts/'+id).catch(function(){})});
   S.dialog=null;S.confirm=null;S.inc=inc;S.exp=exp;render();renderDialog();
   if(chInc)p.push(save('income',{rows:inc,updated:Date.now()}));
   if(chExp)p.push(save('expense',{rows:exp,updated:Date.now()}));
 }
 function delTx(){
-  var d=S.dialog,t=d.orig;S.dialog=null;S.confirm=null;renderDialog();
+  var d=S.dialog,t=d.orig;(d.row.receipts||[]).concat(d.added||[]).filter(function(x,i,a){return a.indexOf(x)===i}).forEach(function(id){API.delDoc('receipts/'+id).catch(function(){})});S.dialog=null;S.confirm=null;renderDialog();
   var rows=(t==='inc'?S.inc:S.exp).filter(function(x){return x.id!==d.row.id});
   saveRows(t==='inc'?'income':'expense',rows);
 }
@@ -262,19 +317,24 @@ function csv(){
 }
 /* ---------- events ---------- */
 document.addEventListener('click',function(e){
-  var t=e.target.closest('[data-tab],[data-type],[data-act],[data-edit],[data-dtype],[data-askdel],[data-del],[data-editsimple],[data-year]');if(!t)return;
+  var t=e.target.closest('[data-tab],[data-type],[data-act],[data-edit],[data-dtype],[data-askdel],[data-del],[data-editsimple],[data-year],[data-rview],[data-rdel]');if(!t)return;
   if(t.dataset.tab){S.editS=null;S.tab=t.dataset.tab;S.confirm=null;render();return}
   if(t.dataset.type){S.txType=t.dataset.type;S.txLimit=80;render();return}
   if(t.dataset.dtype){S.dialog.type=t.dataset.dtype;captureForm();renderDialog();return}
   if(t.dataset.edit){var p=t.dataset.edit.split(':'),arr=p[0]==='inc'?S.inc:S.exp;
-    var row=arr.find(function(x){return x.id===p[1]});S.confirm=null;S.dialog={type:p[0],orig:p[0],row:Object.assign({},row)};renderDialog();return}
+    var row=arr.find(function(x){return x.id===p[1]});S.confirm=null;S.dialog={type:p[0],orig:p[0],row:Object.assign({},row,{receipts:(row.receipts||[]).slice()})};renderDialog();return}
   if(t.dataset.editsimple){var q=t.dataset.editsimple.split(':');S.editS={kind:q[0],id:q.slice(1).join(':')};S.confirm=null;render();return}
+  if(t.dataset.rview){var q0=t.dataset.rview.split(':'),r0=(q0[0]==='inc'?S.inc:S.exp).find(function(x){return x.id===q0[1]});if(r0&&r0.receipts)openViewer(r0.receipts);return}
+  if(t.dataset.rdel){var id0=t.dataset.rdel,d0=S.dialog;captureForm();d0.row.receipts=(d0.row.receipts||[]).filter(function(x){return x!==id0});
+    if((d0.added||[]).indexOf(id0)>=0){d0.added=d0.added.filter(function(x){return x!==id0});API.delDoc('receipts/'+id0).catch(function(){})}else{d0.removed=(d0.removed||[]).concat([id0])}
+    renderDialog();return}
   if(t.dataset.year){S.year=t.dataset.year;S.month='all';S.txLimit=80;render();return}
   if(t.dataset.askdel){S.confirm=t.dataset.askdel;render();return}
   if(t.dataset.del){delSimple(t.dataset.del);return}
   var a=t.dataset.act;
   if(a==='add'){S.confirm=null;S.dialog={type:'exp',orig:null,row:{date:new Date().toISOString().slice(0,10),year:S.year!=='all'?S.year:(curYear()||'תשפ״ז')}};renderDialog();return}
-  if(a==='close'||(a==='closeBg'&&e.target===t)){S.dialog=null;S.confirm=null;renderDialog();return}
+  if(a==='close'||(a==='closeBg'&&e.target===t)){discardDialog();return}
+  if(a==='vClose'&&(t.tagName==='BUTTON'||e.target===t)){$('overlay3').innerHTML='';return}
   if(a==='cancelEdit'){S.editS=null;render();return}
   if(a==='more'){S.txLimit+=120;render();return}
   if(a==='csv'){csv();return}
@@ -287,6 +347,7 @@ function captureForm(){var d=S.dialog;if(!d||!$('fAmt'))return;var r=d.row;
 document.addEventListener('change',function(e){
   var id=e.target.id;
   if(id==='monthSel'){S.month=e.target.value;render()}
+  else if(id==='fRcpt'){var fl=e.target.files;if(fl&&fl.length)addReceipts(fl);e.target.value=''}
   else if(id==='txMethod'){S.txMethod=e.target.value;S.txLimit=80;render()}
   else if(id==='txCat'){S.txCat=e.target.value;S.txLimit=80;render()}
   else if(id==='txND'){S.txNoDate=e.target.checked;render()}
@@ -313,7 +374,7 @@ function delSimple(key){
   if(k==='inv'||k==='pay'){var c=Object.assign({},S.cat);var f=k==='inv'?'invoices':'payments';c[f]=c[f].filter(function(x){return x.id!==id});S.cat=c;render();save('catering',c);return}
   if(k==='edu'){S.edu=S.edu.filter(function(x){return x.id!==id});render();save('edu',{rows:S.edu});return}
 }
-document.addEventListener('keydown',function(e){if(e.key==='Escape'&&S.dialog){S.dialog=null;S.confirm=null;renderDialog()}});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'){if($('overlay3').innerHTML){$('overlay3').innerHTML='';return}if(S.dialog)discardDialog()}});
 
 /* ---------- boot ---------- */
 

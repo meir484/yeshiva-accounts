@@ -96,6 +96,7 @@ function isOwner(){
   if(C.ownerEmail)return Promise.resolve(e===String(C.ownerEmail).toLowerCase());
   return sha256(e).then(function(h){return h===String(C.ownerHash||'').toLowerCase()});
 }
-window.API={isOwner:isOwner,configured:configured,login:login,logout:logout,resume:resume,resetPassword:resetPassword,getDoc:getDoc,setDoc:setDoc,listNotes:listNotes,addNote:addNote,delNote:delNote,
+function delDoc(path){return call(path,{method:'DELETE'}).then(function(res){if(!res.ok&&res.status!==404)throw new Error('המחיקה נכשלה ('+res.status+')')})}
+window.API={delDoc:delDoc,isOwner:isOwner,configured:configured,login:login,logout:logout,resume:resume,resetPassword:resetPassword,getDoc:getDoc,setDoc:setDoc,listNotes:listNotes,addNote:addNote,delNote:delNote,
   email:function(){return sess&&sess.email||null}};
 })();

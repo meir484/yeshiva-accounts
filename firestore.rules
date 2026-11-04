@@ -10,6 +10,10 @@ service cloud.firestore {
       allow read: if isMember();
       allow write: if isOwner();
     }
+    match /receipts/{id} {
+      allow read: if isMember();
+      allow write: if isOwner();
+    }
     match /notes/{note} {
       allow read, create: if isMember();
       allow delete: if isOwner();

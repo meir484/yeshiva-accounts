@@ -141,3 +141,11 @@ td.act{text-align:left;white-space:nowrap}
 [hidden]{display:none!important}
 body{margin:0}
 input[type=password],input[type=file]{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;min-width:0}
+
+.thumbs{display:flex;gap:8px;flex-wrap:wrap}
+.thumbs:empty{display:none}
+.thumb{position:relative;width:76px;height:76px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg)}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb button{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;line-height:1;font-size:15px;padding:0}
+.rview{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;margin-bottom:12px}
+#overlay3 .overlay{z-index:40}
